@@ -114,7 +114,7 @@ export default function App() {
     const file = event.target.files?.[0]
     if (!file) {
       setPhotoFile(null)
-      setPhotoPreview('/images/nopic.png')
+      setPhotoPreview('/warpgate-web/images/nopic.png')
       return
     }
 
@@ -128,7 +128,7 @@ export default function App() {
 
   const resetForm = () => {
     setPhotoFile(null)
-    setPhotoPreview('/images/nopic.png')
+    setPhotoPreview('/warpgate-web/images/nopic.png')
     setCaption('')
     setContactMethod(CONTACT_METHODS[0].value)
     setContactValue('')
@@ -190,12 +190,26 @@ export default function App() {
       <div className="card">
         <section className="field">
           <div className="photo-row">
-            <div className="photo-preview" aria-label="Photo preview">
+            <div className="photo-preview" aria-label="Photo preview" style={{ 
+              overflow: 'hidden', 
+              position: 'relative',
+              width: '100%',
+              height: '350px', // ล็อกความสูงไว้เพื่อไม่ให้ Card ขยับขึ้นลง
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(0,0,0,0.03)',
+              borderRadius: '12px'
+            }}>
               {photoPreview ? (
                 <img 
                   src={photoPreview} 
                   alt="preview" 
                   style={{ 
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    display: 'block',
+                    objectFit: 'contain',
                     transform: `scale(${imageScale / 100}) translate(${offsetX}px, ${offsetY}px)`,
                     transformOrigin: 'center',
                     cursor: imageScale > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default'
@@ -218,9 +232,11 @@ export default function App() {
               onChange={onPhotoChange}
             />
           </div>
-          {photoPreview && photoPreview !== '/images/nopic.png' && (
+          {photoPreview && photoPreview !== '/warpgate-web/images/nopic.png' && (
             <div className="scale-control">
-              <label htmlFor="image-scale">ขนาดรูป: {imageScale}%</label>
+              <label htmlFor="image-scale" style={{ display: 'inline-block', minWidth: '160px' }}>
+                size picture: <span style={{ fontVariantNumeric: 'tabular-nums' }}>{imageScale}%</span>
+              </label>
               <input
                 id="image-scale"
                 type="range"
@@ -230,11 +246,16 @@ export default function App() {
                 onChange={(e) => setImageScale(Number(e.target.value))}
                 className="scale-slider"
               />
-              {imageScale > 100 && (
-                <div className="drag-hint">
-                  คลิกและลากเพื่อปรับตำแหน่งรูปภาพ
-                </div>
-              )}
+              {/* ใช้ visibility เพื่อจองพื้นที่ไว้ ไม่ให้ Card กระตุกเวลาข้อความโผล่ */}
+              <div className="drag-hint" style={{ 
+                height: '20px', 
+                visibility: imageScale > 100 ? 'visible' : 'hidden',
+                fontSize: '13px',
+                marginTop: '8px',
+                color: '#666'
+              }}>
+                คลิกและลากเพื่อปรับตำแหน่งรูปภาพ
+              </div>
             </div>
           )}
         </section>
