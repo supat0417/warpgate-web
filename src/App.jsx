@@ -26,6 +26,8 @@ const BACKGROUND_MAP = {
 
 export default function App() {
   const fileInputRef = useRef(null)
+  const previewRef = useRef(null)
+  const imgRef = useRef(null)
   const [photoPreview, setPhotoPreview] = useState('/warpgate-web/images/nopic.png')
   const [photoFile, setPhotoFile] = useState(null)
   const [caption, setCaption] = useState('')
@@ -35,6 +37,7 @@ export default function App() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [imageScale, setImageScale] = useState(100)
+  const [minScale, setMinScale] = useState(100)
   const [offsetX, setOffsetX] = useState(0)
   const [offsetY, setOffsetY] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
@@ -43,20 +46,61 @@ export default function App() {
   const backgroundImage = useMemo(() => BACKGROUND_MAP[status] ?? BACKGROUND_MAP[STATUS_METHODS[0].value], [status])
 
   const clampOffset = (x, y, scale) => {
-    if (scale <= 100) return { x: 0, y: 0 }
+    // ถ้าขนาดรูปเล็กกว่าหรือเท่ากับค่า minScale ที่ล็อกไว้ (ในด้านนั้นๆ) ให้ล็อกไว้ที่ตรงกลาง
+    if (!previewRef.current || !imgRef.current) return { x: 0, y: 0 }
     
-    // With object-fit: contain, visual size stays within container
-    // So use fixed max offset for boundary clamping
-    const maxOffset = 100
+    const container = previewRef.current.getBoundingClientRect()
+    const img = imgRef.current
+    const k = scale / 100
     
+    // คำนวณขนาดรูปภาพที่แท้จริงหลังจากทำ object-fit: contain
+    const containerRatio = container.width / container.height
+    const imageRatio = img.naturalWidth / img.naturalHeight
+
+    let baseW, baseH
+    if (imageRatio > containerRatio) {
+      baseW = container.width
+      baseH = container.width / imageRatio
+    } else {
+      baseH = container.height
+      baseW = container.height * imageRatio
+    }
+
+    // คำนวณหาจุดสูงสุดที่อนุญาตให้เลื่อนได้ (ไม่ให้ขอบรูปหลุดจากขอบ Container)
+    const maxX = Math.max(0, (baseW - container.width / k) / 2)
+    const maxY = Math.max(0, (baseH - container.height / k) / 2)
+
     return {
-      x: Math.max(-maxOffset, Math.min(maxOffset, x)),
-      y: Math.max(-maxOffset, Math.min(maxOffset, y))
+      x: Math.max(-maxX, Math.min(maxX, x)),
+      y: Math.max(-maxY, Math.min(maxY, y))
     }
   }
 
+  // จัดการการ Snap Back เมื่อมีการเปลี่ยน Scale (เช่น เลื่อน Slider ลง)
+  useEffect(() => {
+    const clamped = clampOffset(offsetX, offsetY, imageScale)
+    setOffsetX(clamped.x)
+    setOffsetY(clamped.y)
+  }, [imageScale, photoPreview, minScale])
+
+  const handleImageLoad = () => {
+    if (!imgRef.current || photoPreview.includes('nopic.png')) {
+      setMinScale(100)
+      setImageScale(100)
+      return
+    }
+    const { naturalWidth, naturalHeight } = imgRef.current
+    const ratio = naturalWidth / naturalHeight
+    // คำนวณ Scale ต่ำสุดที่ทำให้รูปภาพเต็มกรอบ 1:1 เสมอ (Cover logic)
+    const calculatedMin = Math.max(1, ratio, 1 / ratio) * 100
+    setMinScale(calculatedMin)
+    setImageScale(calculatedMin) // ตั้งค่าเริ่มต้นให้พอดีขอบที่สุด
+    setOffsetX(0)
+    setOffsetY(0)
+  }
+
   const handleMouseDown = (e) => {
-    if (imageScale <= 100) return
+    if (imageScale < minScale) return
     setIsDragging(true)
     setDragStart({
       x: e.clientX,
@@ -66,8 +110,20 @@ export default function App() {
     })
   }
 
+  const handleTouchStart = (e) => {
+    if (imageScale < minScale) return
+    const touch = e.touches[0]
+    setIsDragging(true)
+    setDragStart({
+      x: touch.clientX,
+      y: touch.clientY,
+      offsetX: offsetX,
+      offsetY: offsetY
+    })
+  }
+
   const handleMouseMove = (e) => {
-    if (!isDragging || imageScale <= 100) return
+    if (!isDragging || imageScale < minScale) return
     const deltaX = e.clientX - dragStart.x
     const deltaY = e.clientY - dragStart.y
     const newX = dragStart.offsetX + deltaX
@@ -82,10 +138,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    const handleGlobalMouseMove = (e) => {
-      if (!isDragging || imageScale <= 100) return
-      const deltaX = e.clientX - dragStart.x
-      const deltaY = e.clientY - dragStart.y
+    const handleMove = (clientX, clientY) => {
+      if (!isDragging || imageScale < minScale) return
+      const deltaX = clientX - dragStart.x
+      const deltaY = clientY - dragStart.y
       const newX = dragStart.offsetX + deltaX
       const newY = dragStart.offsetY + deltaY
       const clamped = clampOffset(newX, newY, imageScale)
@@ -93,19 +149,28 @@ export default function App() {
       setOffsetY(clamped.y)
     }
 
-    const handleGlobalMouseUp = () => {
-      setIsDragging(false)
+    const onMouseMove = (e) => handleMove(e.clientX, e.clientY)
+    const onTouchMove = (e) => {
+      // ป้องกันการ Scroll หน้าจอขณะลากรูป
+      if (isDragging && e.cancelable) e.preventDefault()
+      handleMove(e.touches[0].clientX, e.touches[0].clientY)
     }
 
+    const onEnd = () => setIsDragging(false)
+
     if (isDragging) {
-      document.addEventListener('mousemove', handleGlobalMouseMove)
-      document.addEventListener('mouseup', handleGlobalMouseUp)
+      window.addEventListener('mousemove', onMouseMove)
+      window.addEventListener('mouseup', onEnd)
+      window.addEventListener('touchmove', onTouchMove, { passive: false })
+      window.addEventListener('touchend', onEnd)
       document.body.style.cursor = 'grabbing'
     }
 
     return () => {
-      document.removeEventListener('mousemove', handleGlobalMouseMove)
-      document.removeEventListener('mouseup', handleGlobalMouseUp)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onEnd)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchend', onEnd)
       document.body.style.cursor = ''
     }
   }, [isDragging, dragStart, imageScale])
@@ -135,6 +200,7 @@ export default function App() {
     setStatus(STATUS_METHODS[0].value)
     setMessage('')
     setImageScale(100)
+    setMinScale(100)
     setOffsetX(0)
     setOffsetY(0)
     setIsDragging(false)
@@ -190,11 +256,12 @@ export default function App() {
       <div className="card">
         <section className="field">
           <div className="photo-row">
-            <div className="photo-preview" aria-label="Photo preview" style={{ 
+            <div className="photo-preview" ref={previewRef} aria-label="Photo preview" style={{ 
               overflow: 'hidden', 
               position: 'relative',
               width: '100%',
-              height: '350px', // ล็อกความสูงไว้เพื่อไม่ให้ Card ขยับขึ้นลง
+              maxWidth: '400px', // ขนาดสูงสุดที่เหมาะสม
+              aspectRatio: '1 / 1', // ล็อกเป็นสี่เหลี่ยมจัตุรัส (ขนาดจริงที่จะ save)
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -204,7 +271,9 @@ export default function App() {
               {photoPreview ? (
                 <img 
                   src={photoPreview} 
+                  ref={imgRef}
                   alt="preview" 
+                  onLoad={handleImageLoad}
                   style={{ 
                     maxWidth: '100%',
                     maxHeight: '100%',
@@ -212,11 +281,13 @@ export default function App() {
                     objectFit: 'contain',
                     transform: `scale(${imageScale / 100}) translate(${offsetX}px, ${offsetY}px)`,
                     transformOrigin: 'center',
-                    cursor: imageScale > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default'
+                    cursor: imageScale >= minScale ? (isDragging ? 'grabbing' : 'grab') : 'default',
+                    touchAction: imageScale >= minScale ? 'none' : 'auto' // ปิด touch-action ปกติเมื่อต้องการลากรูป
                   }}
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
+                  onTouchStart={handleTouchStart}
                   onMouseLeave={handleMouseUp}
                   draggable={false}
                 />
@@ -240,8 +311,8 @@ export default function App() {
               <input
                 id="image-scale"
                 type="range"
-                min="50"
-                max="200"
+                min={minScale}
+                max={minScale + 200}
                 value={imageScale}
                 onChange={(e) => setImageScale(Number(e.target.value))}
                 className="scale-slider"
@@ -249,7 +320,7 @@ export default function App() {
               {/* ใช้ visibility เพื่อจองพื้นที่ไว้ ไม่ให้ Card กระตุกเวลาข้อความโผล่ */}
               <div className="drag-hint" style={{ 
                 height: '20px', 
-                visibility: imageScale > 100 ? 'visible' : 'hidden',
+                visibility: imageScale >= minScale ? 'visible' : 'hidden',
                 fontSize: '13px',
                 marginTop: '8px',
                 color: '#666'
