@@ -1,24 +1,27 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, useEffect } from 'react'
 import './App.css'
 
-const STATUS = {
-  NONE: '',
-  SINGLE: 'Single',
-  UNSINGLE: 'Unsingle',
-  DEPEND: 'Depend',
-}
-
 const CONTACT_METHODS = [
-  { value: 'Line', label: 'Line' },
-  { value: 'Instagram', label: 'Instagram' },
-  { value: 'Facebook', label: 'Facebook' },
+  { value: 'INSTAGRAM', label: 'Instagram' },
+  { value: 'LINE', label: 'Line' },
+  { value: 'TIKTOK', label: 'TikTok' },
+  { value: 'FACEBOOK', label: 'Facebook' },
+  { value: 'WHATSAPP', label: 'WhatsApp' },
+  { value: 'WECHAT', label: 'WeChat' },
+
+]
+
+const STATUS_METHODS = [
+  { value: 'DEPEND', label: 'Depend' },
+  { value: 'SINGLE', label: 'Single' },
+  { value: 'UNSINGLE', label: 'Unsingle' },
 ]
 
 const BACKGROUND_MAP = {
-  [STATUS.NONE]: '/images/Default.png',
-  [STATUS.SINGLE]: '/images/Single-green.png',
-  [STATUS.UNSINGLE]: '/images/Unsingle-red.png',
-  [STATUS.DEPEND]: '/images/Depend-purple.png',
+  [STATUS_METHODS[0].value]: '/images/Depend-purple.png',
+  [STATUS_METHODS[1].value]: '/images/Single-green.png',
+  [STATUS_METHODS[2].value]: '/images/Unsingle-red.png',
+
 }
 
 export default function App() {
@@ -28,11 +31,84 @@ export default function App() {
   const [caption, setCaption] = useState('')
   const [contactMethod, setContactMethod] = useState(CONTACT_METHODS[0].value)
   const [contactValue, setContactValue] = useState('')
-  const [status, setStatus] = useState(STATUS.NONE)
+  const [status, setStatus] = useState(STATUS_METHODS[0].value)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [imageScale, setImageScale] = useState(100)
+  const [offsetX, setOffsetX] = useState(0)
+  const [offsetY, setOffsetY] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
 
-  const backgroundImage = useMemo(() => BACKGROUND_MAP[status] ?? BACKGROUND_MAP[STATUS.NONE], [status])
+  const backgroundImage = useMemo(() => BACKGROUND_MAP[status] ?? BACKGROUND_MAP[STATUS_METHODS[0].value], [status])
+
+  const clampOffset = (x, y, scale) => {
+    if (scale <= 100) return { x: 0, y: 0 }
+    
+    // With object-fit: contain, visual size stays within container
+    // So use fixed max offset for boundary clamping
+    const maxOffset = 100
+    
+    return {
+      x: Math.max(-maxOffset, Math.min(maxOffset, x)),
+      y: Math.max(-maxOffset, Math.min(maxOffset, y))
+    }
+  }
+
+  const handleMouseDown = (e) => {
+    if (imageScale <= 100) return
+    setIsDragging(true)
+    setDragStart({
+      x: e.clientX,
+      y: e.clientY,
+      offsetX: offsetX,
+      offsetY: offsetY
+    })
+  }
+
+  const handleMouseMove = (e) => {
+    if (!isDragging || imageScale <= 100) return
+    const deltaX = e.clientX - dragStart.x
+    const deltaY = e.clientY - dragStart.y
+    const newX = dragStart.offsetX + deltaX
+    const newY = dragStart.offsetY + deltaY
+    const clamped = clampOffset(newX, newY, imageScale)
+    setOffsetX(clamped.x)
+    setOffsetY(clamped.y)
+  }
+
+  const handleMouseUp = () => {
+    setIsDragging(false)
+  }
+
+  useEffect(() => {
+    const handleGlobalMouseMove = (e) => {
+      if (!isDragging || imageScale <= 100) return
+      const deltaX = e.clientX - dragStart.x
+      const deltaY = e.clientY - dragStart.y
+      const newX = dragStart.offsetX + deltaX
+      const newY = dragStart.offsetY + deltaY
+      const clamped = clampOffset(newX, newY, imageScale)
+      setOffsetX(clamped.x)
+      setOffsetY(clamped.y)
+    }
+
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false)
+    }
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleGlobalMouseMove)
+      document.addEventListener('mouseup', handleGlobalMouseUp)
+      document.body.style.cursor = 'grabbing'
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove)
+      document.removeEventListener('mouseup', handleGlobalMouseUp)
+      document.body.style.cursor = ''
+    }
+  }, [isDragging, dragStart, imageScale])
 
   const onPhotoChange = (event) => {
     const file = event.target.files?.[0]
@@ -56,8 +132,13 @@ export default function App() {
     setCaption('')
     setContactMethod(CONTACT_METHODS[0].value)
     setContactValue('')
-    setStatus(STATUS.NONE)
+    setStatus(STATUS_METHODS[0].value)
     setMessage('')
+    setImageScale(100)
+    setOffsetX(0)
+    setOffsetY(0)
+    setIsDragging(false)
+    setDragStart({ x: 0, y: 0 })
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -68,16 +149,18 @@ export default function App() {
     setMessage('')
 
     const payload = {
+      filName: photoFile?.name ?? null,
       caption,
-      contactMethod,
-      contactValue,
-      status,
-      photoFilename: photoFile?.name ?? null,
+      contract: {
+        contractType: contactMethod,
+        contractValue: contactValue,
+      },
+      status
     }
 
     try {
-      // Replace this URL with your real API endpoint.
-      const res = await fetch('/api/save', {
+      // contracts/create
+      const res = await fetch('http://localhost:8080/warpgate-service/api/v1/contracts/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -88,6 +171,12 @@ export default function App() {
       }
 
       setMessage('Saved successfully 🎉')
+
+      setTimeout(() => {
+        setMessage('')
+      }, 10000)
+
+      resetForm()
     } catch (err) {
       setMessage(`Save failed: ${err?.message ?? err}`)
     } finally {
@@ -103,7 +192,20 @@ export default function App() {
           <div className="photo-row">
             <div className="photo-preview" aria-label="Photo preview">
               {photoPreview ? (
-                <img src={photoPreview} alt="preview" />
+                <img 
+                  src={photoPreview} 
+                  alt="preview" 
+                  style={{ 
+                    transform: `scale(${imageScale / 100}) translate(${offsetX}px, ${offsetY}px)`,
+                    transformOrigin: 'center',
+                    cursor: imageScale > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default'
+                  }}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                  draggable={false}
+                />
               ) : (
                 <div className="photo-placeholder">ยังไม่มีรูป</div>
               )}
@@ -116,6 +218,25 @@ export default function App() {
               onChange={onPhotoChange}
             />
           </div>
+          {photoPreview && photoPreview !== '/images/nopic.png' && (
+            <div className="scale-control">
+              <label htmlFor="image-scale">ขนาดรูป: {imageScale}%</label>
+              <input
+                id="image-scale"
+                type="range"
+                min="50"
+                max="200"
+                value={imageScale}
+                onChange={(e) => setImageScale(Number(e.target.value))}
+                className="scale-slider"
+              />
+              {imageScale > 100 && (
+                <div className="drag-hint">
+                  คลิกและลากเพื่อปรับตำแหน่งรูปภาพ
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="field">
@@ -133,7 +254,7 @@ export default function App() {
 
         <section className="field">
           <label className="label" htmlFor="contact-method">
-            Contact
+            Contract
           </label>
           <div className="contact-row">
             <select
@@ -165,9 +286,11 @@ export default function App() {
             value={status}
             onChange={(e) => setStatus(e.target.value)}
           >
-            <option value={STATUS.DEPEND}>{STATUS.DEPEND}</option>
-            <option value={STATUS.SINGLE}>{STATUS.SINGLE}</option>
-            <option value={STATUS.UNSINGLE}>{STATUS.UNSINGLE}</option>
+            {STATUS_METHODS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
           </select>
         </section>
 
