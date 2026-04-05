@@ -18,15 +18,15 @@ const STATUS_METHODS = [
 ]
 
 const BACKGROUND_MAP = {
-  [STATUS_METHODS[0].value]: '/images/Depend-purple.png',
-  [STATUS_METHODS[1].value]: '/images/Single-green.png',
-  [STATUS_METHODS[2].value]: '/images/Unsingle-red.png',
+  [STATUS_METHODS[0].value]: '/warpgate-web/images/Depend-purple.png',
+  [STATUS_METHODS[1].value]: '/warpgate-web/images/Single-green.png',
+  [STATUS_METHODS[2].value]: '/warpgate-web/images/Unsingle-red.png',
 
 }
 
 export default function App() {
   const fileInputRef = useRef(null)
-  const [photoPreview, setPhotoPreview] = useState('/images/nopic.png')
+  const [photoPreview, setPhotoPreview] = useState('/warpgate-web/images/nopic.png')
   const [photoFile, setPhotoFile] = useState(null)
   const [caption, setCaption] = useState('')
   const [contactMethod, setContactMethod] = useState(CONTACT_METHODS[0].value)
