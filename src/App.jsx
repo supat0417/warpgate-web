@@ -78,21 +78,24 @@ export default function App() {
 
   // จัดการการ Snap Back เมื่อมีการเปลี่ยน Scale (เช่น เลื่อน Slider ลง)
   useEffect(() => {
+    if (imageScale < minScale) return
     const clamped = clampOffset(offsetX, offsetY, imageScale)
     setOffsetX(clamped.x)
     setOffsetY(clamped.y)
   }, [imageScale, photoPreview, minScale])
 
   const handleImageLoad = () => {
-    if (!imgRef.current || photoPreview.includes('nopic.png')) {
+    const img = imgRef.current
+    if (!img || !img.naturalWidth || !img.naturalHeight || photoPreview.includes('nopic.png')) {
       setMinScale(100)
       setImageScale(100)
       return
     }
-    const { naturalWidth, naturalHeight } = imgRef.current
+    const { naturalWidth, naturalHeight } = img
     const ratio = naturalWidth / naturalHeight
     // คำนวณ Scale ต่ำสุดที่ทำให้รูปภาพเต็มกรอบ 1:1 เสมอ (Cover logic)
-    const calculatedMin = Math.max(1, ratio, 1 / ratio) * 100
+    const calculatedMin = Math.max(100, Math.ceil(Math.max(1, ratio, 1 / ratio) * 100))
+    
     setMinScale(calculatedMin)
     setImageScale(calculatedMin) // ตั้งค่าเริ่มต้นให้พอดีขอบที่สุด
     setOffsetX(0)
@@ -261,12 +264,18 @@ export default function App() {
               position: 'relative',
               width: '100%',
               maxWidth: '400px', // ขนาดสูงสุดที่เหมาะสม
-              aspectRatio: '1 / 1', // ล็อกเป็นสี่เหลี่ยมจัตุรัส (ขนาดจริงที่จะ save)
+              height: 'auto',
+              aspectRatio: '1 / 1', // ล็อกเป็นสี่เหลี่ยมจัตุรัส 4:4
+              margin: '0 auto', // จัดกึ่งกลางกรอบ preview ใน Card
+              flex: 'none',
+              flexShrink: 0, // ป้องกัน Flexbox บีบให้เสียรูป
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: 'rgba(0,0,0,0.03)',
-              borderRadius: '12px'
+              backgroundColor: '#eee',
+              border: '4px solid #fff', // ทำเป็นขอบขาวหนาๆ ให้ดูเหมือนกรอบรูปจริง
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)', // เพิ่มเงาให้กรอบดูเด่นออกมา
+              borderRadius: '4px'
             }}>
               {photoPreview ? (
                 <img 
@@ -279,9 +288,10 @@ export default function App() {
                     maxHeight: '100%',
                     display: 'block',
                     objectFit: 'contain',
-                    transform: `scale(${imageScale / 100}) translate(${offsetX}px, ${offsetY}px)`,
+                    transform: `scale(${imageScale / 100}) translate3d(${Math.round(offsetX)}px, ${Math.round(offsetY)}px, 0)`,
                     transformOrigin: 'center',
                     cursor: imageScale >= minScale ? (isDragging ? 'grabbing' : 'grab') : 'default',
+                    willChange: 'transform', // บอก Browser ให้เตรียม GPU สำหรับการขยับรูป
                     touchAction: imageScale >= minScale ? 'none' : 'auto' // ปิด touch-action ปกติเมื่อต้องการลากรูป
                   }}
                   onMouseDown={handleMouseDown}
@@ -306,15 +316,16 @@ export default function App() {
           {photoPreview && photoPreview !== '/warpgate-web/images/nopic.png' && (
             <div className="scale-control">
               <label htmlFor="image-scale" style={{ display: 'inline-block', minWidth: '160px' }}>
-                size picture: <span style={{ fontVariantNumeric: 'tabular-nums' }}>{imageScale}%</span>
+                Size Picture: <span style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(imageScale)}%</span>
               </label>
               <input
                 id="image-scale"
                 type="range"
-                min={minScale}
-                max={minScale + 200}
+                min={minScale || 100}
+                max={(minScale || 100) + 200}
+                step="0.1"
                 value={imageScale}
-                onChange={(e) => setImageScale(Number(e.target.value))}
+                onInput={(e) => setImageScale(Number(e.target.value))} // ใช้ onInput เพื่อความลื่นไหลบน Android
                 className="scale-slider"
               />
               {/* ใช้ visibility เพื่อจองพื้นที่ไว้ ไม่ให้ Card กระตุกเวลาข้อความโผล่ */}
