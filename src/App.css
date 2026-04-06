@@ -351,3 +351,43 @@ textarea {
     flex-direction: column;
   }
 }
+
+/* --- Confirmation Modal --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 2, 18, 0.85); /* มืดสนิทเพื่อให้ Modal เด่น */
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-content {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 24px;
+  width: min(420px, 100%);
+  box-shadow: 0 0 30px rgba(235, 126, 246, 0.15); /* เพิ่ม Glow สีชมพู */
+  animation: modalScaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalScaleIn {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.confirm-summary {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 16px;
+  border-radius: 14px;
+  margin-bottom: 24px;
+  font-size: 15px;
+  line-height: 1.6;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.confirm-summary strong { color: var(--accent2); }

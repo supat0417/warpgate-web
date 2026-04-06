@@ -24,6 +24,14 @@ const BACKGROUND_MAP = {
 
 }
 
+// Utility function to generate a UUID (v4)
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 export default function App() {
   const fileInputRef = useRef(null)
   const previewRef = useRef(null)
@@ -34,6 +42,7 @@ export default function App() {
   const [contactMethod, setContactMethod] = useState(CONTACT_METHODS[0].value)
   const [contactValue, setContactValue] = useState('')
   const [status, setStatus] = useState(STATUS_METHODS[0].value)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [imageScale, setImageScale] = useState(100)
@@ -46,7 +55,6 @@ export default function App() {
   const backgroundImage = useMemo(() => BACKGROUND_MAP[status] ?? BACKGROUND_MAP[STATUS_METHODS[0].value], [status])
 
   const clampOffset = (x, y, scale) => {
-    // ถ้าขนาดรูปเล็กกว่าหรือเท่ากับค่า minScale ที่ล็อกไว้ (ในด้านนั้นๆ) ให้ล็อกไว้ที่ตรงกลาง
     if (!previewRef.current || !imgRef.current) return { x: 0, y: 0 }
     
     const container = previewRef.current.getBoundingClientRect()
@@ -79,7 +87,7 @@ export default function App() {
   // จัดการการ Snap Back เมื่อมีการเปลี่ยน Scale (เช่น เลื่อน Slider ลง)
   useEffect(() => {
     if (imageScale < minScale) return
-    const clamped = clampOffset(offsetX, offsetY, imageScale)
+    const clamped = clampOffset(offsetX, offsetY, imageScale) // Recalculate and clamp current offset
     setOffsetX(clamped.x)
     setOffsetY(clamped.y)
   }, [imageScale, photoPreview, minScale])
@@ -131,7 +139,7 @@ export default function App() {
     const deltaY = e.clientY - dragStart.y
     const newX = dragStart.offsetX + deltaX
     const newY = dragStart.offsetY + deltaY
-    const clamped = clampOffset(newX, newY, imageScale)
+    const clamped = clampOffset(newX, newY, imageScale) // Clamp new offset
     setOffsetX(clamped.x)
     setOffsetY(clamped.y)
   }
@@ -147,7 +155,7 @@ export default function App() {
       const deltaY = clientY - dragStart.y
       const newX = dragStart.offsetX + deltaX
       const newY = dragStart.offsetY + deltaY
-      const clamped = clampOffset(newX, newY, imageScale)
+      const clamped = clampOffset(newX, newY, imageScale) // Clamp new offset
       setOffsetX(clamped.x)
       setOffsetY(clamped.y)
     }
@@ -175,8 +183,8 @@ export default function App() {
       window.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('touchend', onEnd)
       document.body.style.cursor = ''
-    }
-  }, [isDragging, dragStart, imageScale])
+    } // Added offsetX, offsetY to dependencies for completeness
+  }, [isDragging, dragStart, imageScale, minScale, offsetX, offsetY])
 
   const onPhotoChange = (event) => {
     const file = event.target.files?.[0]
@@ -213,45 +221,147 @@ export default function App() {
     }
   }
 
-  const handleSave = async () => {
-    setSaving(true)
-    setMessage('')
+  const handleSave = () => {
+    if (!photoFile) {
+      setMessage('กรุณาอัปโหลดรูปภาพก่อนบันทึก');
+      return;
+    }
+    setShowConfirm(true)
+  }
 
-    const payload = {
-      filName: photoFile?.name ?? null,
-      caption,
-      contract: {
-        contractType: contactMethod,
-        contractValue: contactValue,
-      },
-      status
+  const performSave = async () => {
+    setShowConfirm(false)
+    setSaving(true)
+    setMessage(''); // Clear previous messages
+
+    if (!photoFile || !imgRef.current || !previewRef.current) {
+      setMessage('Save failed: No photo or preview element found.');
+      setSaving(false);
+      return;
     }
 
+    const img = imgRef.current;
+    const previewContainer = previewRef.current;
+    const CANVAS_OUTPUT_SIZE = 600; // กำหนดขนาดของรูปภาพที่ต้องการบันทึก (เช่น 600x600 pixels)
+
+    const canvas = document.createElement('canvas');
+    canvas.width = CANVAS_OUTPUT_SIZE;
+    canvas.height = CANVAS_OUTPUT_SIZE;
+    const ctx = canvas.getContext('2d');
+
+    const originalWidth = img.naturalWidth;
+    const originalHeight = img.naturalHeight;
+    const containerWidth = previewContainer.offsetWidth; // เนื่องจาก preview เป็นสี่เหลี่ยมจัตุรัส, width == height
+
+    // Step 1: คำนวณขนาดของรูปภาพเสมือนว่าถูก object-fit: contain ในกรอบ preview (containerWidth x containerWidth)
+    const imgRatio = originalWidth / originalHeight;
+    let baseW_container, baseH_container;
+    if (imgRatio > 1) { // รูปภาพกว้างกว่าสูง
+      baseW_container = containerWidth;
+      baseH_container = containerWidth / imgRatio;
+    } else { // รูปภาพสูงกว่ากว้าง หรือเป็นสี่เหลี่ยมจัตุรัส
+      baseH_container = containerWidth;
+      baseW_container = containerWidth * imgRatio;
+    }
+
+    // Step 2: คำนวณขนาดที่รูปภาพถูกแสดงจริงใน preview หลังจาก apply imageScale
+    const displayedW = baseW_container * (imageScale / 100);
+    const displayedH = baseH_container * (imageScale / 100);
+
+    // Step 3: คำนวณตำแหน่งมุมซ้ายบนของรูปภาพที่แสดงผลเทียบกับมุมซ้ายบนของกรอบ preview
+    // รูปภาพจะถูกจัดกึ่งกลางก่อน แล้วค่อยเลื่อนด้วย offsetX, offsetY
+    const initialDisplayX = (containerWidth - displayedW) / 2;
+    const initialDisplayY = (containerWidth - displayedH) / 2;
+
+    const finalDisplayX = initialDisplayX + offsetX;
+    const finalDisplayY = initialDisplayY + offsetY;
+
+    // Step 4: กำหนด Source Rectangle (sx, sy, sWidth, sHeight) จากรูปภาพต้นฉบับ
+    // ที่สอดคล้องกับพื้นที่ที่มองเห็นในกรอบ preview (containerWidth x containerWidth)
+    const ratioX = originalWidth / displayedW;
+    const ratioY = originalHeight / displayedH;
+
+    let sx = (0 - finalDisplayX) * ratioX;
+    let sy = (0 - finalDisplayY) * ratioY;
+    let sWidth = containerWidth * ratioX;
+    let sHeight = containerWidth * ratioY;
+
+    // ตรวจสอบให้แน่ใจว่า Source Rectangle อยู่ภายในขอบเขตของรูปภาพต้นฉบับ
+    sx = Math.max(0, sx);
+    sy = Math.max(0, sy);
+    sWidth = Math.min(originalWidth - sx, sWidth);
+    sHeight = Math.min(originalHeight - sy, sHeight);
+
+    // Destination Rectangle บน Canvas (ต้องการให้เต็ม Canvas)
+    const dx = 0;
+    const dy = 0;
+    const dWidth = CANVAS_OUTPUT_SIZE;
+    const dHeight = CANVAS_OUTPUT_SIZE;
+
+    // วาดรูปภาพที่ถูกครอปและปรับขนาดลงบน Canvas
+    ctx.drawImage(img, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
+
+    // แปลง Canvas เป็น Blob (ไฟล์รูปภาพ)
+    let processedImageBlob = null;
     try {
-      // contracts/create
+      processedImageBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9)); // บันทึกเป็น JPEG คุณภาพ 90%
+    } catch (blobError) {
+      setMessage(`Save failed: Could not process image. ${blobError.message}`);
+      setSaving(false);
+      return;
+    }
+
+    if (!processedImageBlob) {
+      setMessage('Save failed: Processed image is empty.');
+      setSaving(false);
+      return;
+    }
+
+    const imageUUID = generateUUID();
+    const newFileName = `${imageUUID}.jpeg`; // กำหนดชื่อไฟล์ใหม่เป็น UUID.jpeg
+
+    try {
+      // แปลงรูปภาพที่ครอปแล้วเป็น Base64 เพื่อส่งไปให้ Server ใน Request เดียว
+      const base64Image = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(processedImageBlob);
+      });
+
+      const payload = {
+        fileName: newFileName,   // ส่งชื่อไฟล์ UUID
+        // fileData: base64Image,   // ส่งข้อมูลรูปภาพเพื่อให้ Server ไปเซฟลง Folder imagesUpload
+        caption,
+        contract: {
+          contractType: contactMethod,
+          contractValue: contactValue,
+        },
+        status
+      };
+
       const res = await fetch('http://localhost:8080/warpgate-service/api/v1/contracts/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      })
+      });
 
       if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`)
+        const errorData = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(`Server returned: ${errorData.message || res.statusText}`);
       }
 
-      setMessage('Saved successfully 🎉')
-
-      setTimeout(() => {
-        setMessage('')
-      }, 10000)
-
-      resetForm()
+      setMessage('Saved successfully 🎉');
+      resetForm();
     } catch (err) {
-      setMessage(`Save failed: ${err?.message ?? err}`)
+      setMessage(`Save failed: ${err?.message ?? err}`);
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
+
+  // Re-evaluate handleImageLoad to ensure minScale is calculated correctly for a square container
+  // The existing handleImageLoad logic is mostly correct, but I'll ensure it's robust.
+  // (No changes needed here, the existing logic is fine for the square container and object-fit: contain)
 
   return (
     <main className="app" style={{ backgroundImage: `url(${backgroundImage})` }}>
@@ -417,6 +527,23 @@ export default function App() {
           <small>Proudly presented by vows and victory.</small>
         </footer>
       </div>
+
+      {showConfirm && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2 style={{ fontSize: '20px', marginBottom: '16px', color: 'var(--accent)', textAlign: 'center' }}>ยืนยันการบันทึกข้อมูล</h2>
+            <div className="confirm-summary">
+              <p style={{ margin: '8px 0' }}><strong>สถานะ:</strong> {STATUS_METHODS.find(s => s.value === status)?.label}</p>
+              <p style={{ margin: '8px 0' }}><strong>ช่องทางติดต่อ:</strong> {CONTACT_METHODS.find(c => c.value === contactMethod)?.label}: {contactValue}</p>
+              <p style={{ margin: '8px 0' }}><strong>ข้อความ:</strong> {caption || '-'}</p>
+            </div>
+            <div className="actions" style={{ marginTop: '0' }}>
+              <button className="button primary" onClick={performSave}>ยืนยัน</button>
+              <button className="button secondary" onClick={() => setShowConfirm(false)}>ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
